@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"log"
@@ -11,25 +12,52 @@ import (
 
 var (
 	fname       string
+	outname     string
 	disassemble bool
+	buildMap    bool
 )
 
 func main() {
 	flag.StringVar(&fname, "f", "", "The file to read")
+	flag.StringVar(&outname, "o", "", "The file to read")
 	flag.BoolVar(&disassemble, "d", false, "Disassemble")
+	flag.BoolVar(&buildMap, "m", false, "Build Map")
 	flag.Parse()
 
 	var (
 		program []byte
 		outname string
+
+		am logic.AssemblyMap
 	)
 
 	if disassemble {
 		program = disassembleFile(fname)
-		outname = fname + ".teal"
+		if outname == "" {
+			outname = fname + ".dis"
+		}
+	} else if buildMap {
+		program, am = assembleWithFileMap(fname)
+		if outname == "" {
+			outname = fname + ".tok"
+		}
+
+		f, err := os.Create(outname + ".map.json")
+		if err != nil {
+			log.Fatalf("Failed to create assembly map file: %s", err)
+		}
+		b, err := json.Marshal(am)
+		if err != nil {
+			log.Fatalf("Failed to marshal assembly map json: %s", err)
+		}
+		f.Write(b)
+		f.Close()
+
 	} else {
 		program = assembleFile(fname)
-		outname = fname + ".tok"
+		if outname == "" {
+			outname = fname + ".tok"
+		}
 	}
 
 	f, err := os.Create(outname)
@@ -67,4 +95,22 @@ func disassembleFile(fname string) (disassembled []byte) {
 	}
 
 	return []byte(text)
+}
+
+func assembleWithFileMap(fname string) (program []byte, deets logic.AssemblyMap) {
+	text, err := ioutil.ReadFile(fname)
+	if err != nil {
+		log.Fatalf("Failed to read file: %s", err)
+	}
+
+	ops, err := logic.AssembleString(string(text))
+	if err != nil {
+		ops.ReportProblems(fname, os.Stderr)
+		log.Fatalf("Failed to assemble string: %s", err)
+	}
+
+	am := ops.GetAssemblyMap()
+	am.SourceName = fname
+
+	return ops.Program, am
 }
